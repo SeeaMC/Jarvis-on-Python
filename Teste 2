@@ -3,9 +3,9 @@ from openwakeword.model import Model
 import sounddevice as sd
 import numpy as np
 import queue
-import whisper  # pip install openai-whisper
-import torch  # GPU: para checar disponibilidade de CUDA
-import webrtcvad  # pip install webrtcvad
+import whisper
+import torch
+import webrtcvad
 import AppOpener
 import time
 import re
@@ -23,11 +23,9 @@ def reiniciar():
     AppOpener.open(aplicativo, match_closest=True)
 
 def normalizar(texto):
-    """minúsculas e remove pontuação, pra facilitar comparação"""
     return re.sub(r'[^\w\s]', '', texto.lower()).strip()
 
 def extrair_comando(texto):
-    """Retorna (acao, aplicativo) ou (None, None) se não reconhecer"""
     palavras = normalizar(texto).split()
     
     acoes = {
@@ -50,12 +48,10 @@ openwakeword.utils.download_models()
  
 oww_model = Model(wakeword_models=["hey_jarvis"])
  
-# GPU: escolhe cuda se disponível, senão cai pra cpu automaticamente
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Whisper rodando em: {device}")
-whisper_model = whisper.load_model("medium", device=device)  # ou "small", "medium"...
+whisper_model = whisper.load_model("medium", device=device)
  
-# VAD: 0 (permissivo) a 3 (rigoroso) - 2 é um bom equilíbrio
 vad = webrtcvad.Vad(2)
  
 SAMPLE_RATE = 16000
@@ -70,21 +66,20 @@ def gravar_comando(duracao_maxima=8, silencio_limite=1.0):
     """Grava até detectar silêncio ou atingir a duração máxima"""
     print("Ouvindo comando...")
     frames = []
-    chunk_duracao = CHUNK_SIZE / SAMPLE_RATE  # em segundos (0.08s aqui)
+    chunk_duracao = CHUNK_SIZE / SAMPLE_RATE
     chunks_max = int(duracao_maxima / chunk_duracao)
     chunks_silencio_limite = int(silencio_limite / chunk_duracao)
  
     chunks_silencio_seguidos = 0
     comecou_a_falar = False
  
-    tamanho_20ms = int(SAMPLE_RATE * 0.02) * 2  # 2 bytes por sample (int16)
+    tamanho_20ms = int(SAMPLE_RATE * 0.02) * 2
  
     for _ in range(chunks_max):
         data = q.get()
         frame = np.frombuffer(data, dtype=np.int16)
         frames.append(frame)
  
-        # webrtcvad exige frames de 10/20/30ms - dividimos o chunk em sub-frames de 20ms
         tem_fala = False
         frame_bytes = frame.tobytes()
         for i in range(0, len(frame_bytes) - tamanho_20ms + 1, tamanho_20ms):
@@ -99,7 +94,6 @@ def gravar_comando(duracao_maxima=8, silencio_limite=1.0):
         else:
             chunks_silencio_seguidos += 1
  
-        # só corta por silêncio depois que a pessoa já começou a falar
         if comecou_a_falar and chunks_silencio_seguidos >= chunks_silencio_limite:
             print("Silêncio detectado, parando gravação.")
             break
@@ -116,18 +110,9 @@ with sd.RawInputStream(samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE,
  
         if prediction.get("hey_jarvis", 0) > 0.5:
             print("Jarvis ativado!")
-            
-            # Limpa o buffer de detecção pra não disparar de novo
             oww_model.reset()
-            
-            # Grava o comando até detectar silêncio (ou até 8s no máximo)
             comando_audio = gravar_comando(duracao_maxima=8, silencio_limite=1.0)
-            
-            # Normaliza pra float32 no range que o Whisper espera
             audio_float = comando_audio.astype(np.float32) / 32768.0
-            
-            # Transcreve com Whisper
-            # GPU: fp16=True só funciona em CUDA; em CPU teria que ser False
             resultado = whisper_model.transcribe(
                 audio_float, language="pt", fp16=(device == "cuda")
             )
@@ -142,8 +127,6 @@ with sd.RawInputStream(samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE,
                 reiniciar()
             
             print("Comando reconhecido:", resultado)
- 
-            # Limpa o áudio acumulado durante a transcrição
             with q.mutex:
                 q.queue.clear()
             
